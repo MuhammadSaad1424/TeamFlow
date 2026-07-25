@@ -159,7 +159,8 @@ The backend exposes these versioned API routes:
 Muhammad Saad
 
 - GitHub: [@MuhammadSaad1424](https://github.com/MuhammadSaad1424)
-- Email: saad@example.com
+- Email: khawajasaad1424@gmail.com
+- Linkedin: https://www.linkedin.com/in/muhammadsaad1424/
 
 ## License
 
