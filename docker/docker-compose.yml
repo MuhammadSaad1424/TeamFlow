@@ -1,0 +1,131 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: teamflow_postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-teamflow_ai}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - teamflow_network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: teamflow_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - teamflow_network
+
+  # ChromaDB Vector Database
+  chromadb:
+    image: ghcr.io/chroma-core/chroma:latest
+    container_name: teamflow_chromadb
+    environment:
+      IS_PERSISTENT: "true"
+      PERSIST_DIRECTORY: "/chroma/data"
+      ANONYMIZED_TELEMETRY: "false"
+    volumes:
+      - chromadb_data:/chroma/data
+    ports:
+      - "${CHROMADB_PORT:-8001}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - teamflow_network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: teamflow_backend
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-teamflow_ai}
+      REDIS_URL: redis://redis:6379
+      CHROMADB_URL: http://chromadb:8000
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      DEBUG: ${DEBUG:-false}
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/logs:/app/logs
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+    networks:
+      - teamflow_network
+    restart: unless-stopped
+
+  # Next.js Frontend (optional)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: teamflow_frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+      NEXT_PUBLIC_GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - backend
+    networks:
+      - teamflow_network
+    restart: unless-stopped
+
+  # PgAdmin (Database Management - optional)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: teamflow_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@teamflow.ai
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      - postgres
+    networks:
+      - teamflow_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  chromadb_data:
+
+networks:
+  teamflow_network:
+    driver: bridge
